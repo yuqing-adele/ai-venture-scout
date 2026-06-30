@@ -20,6 +20,9 @@ logs/
 # 报告输出（含个人分析内容）
 reports/
 
+# 个人笔记 / 面试准备（不公开）
+项目复盘_面试准备.md
+
 # IDE
 .vscode/settings.json
 .idea/
