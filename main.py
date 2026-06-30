@@ -52,8 +52,8 @@ def main():
         border_style="cyan",
     ))
     console.print(
-        "\n[yellow]⚠️ 注意：当前状态在内存中，如果程序中途崩溃或被关闭，"
-        "进度无法恢复，需要重新运行（会重新消耗 API 费用）。[/yellow]"
+        "\n[dim]状态会持久化到 data/checkpoints.sqlite，"
+        "中途崩溃可以用同一个 run_id 通过 run_guided.py resume 恢复，不会丢失已完成步骤的花费。[/dim]"
     )
 
     user_input = read_multiline_input("请描述你的创业背景（团队、预算、方向偏好、已有产品等）：")

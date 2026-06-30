@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from models.schemas import ProductFullResearch, EvaluationOutput, ProductEvaluation, DimensionScore
+from models.schemas import ProductFullResearch, EvaluationOutput, ProductEvaluation, DimensionScore, UserConstraints
 from agents.base import call_claude_structured
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ EVAL_SCHEMA = {
 
 def run(
     products: list[ProductFullResearch],
-    user_input: str = "",
+    constraints: UserConstraints,
     weight_override: dict | None = None,
 ) -> EvaluationOutput:
     if not products:
@@ -91,9 +91,7 @@ def run(
             f"  政策:推荐={p.policy.recommended_district},补贴={p.policy.estimated_subsidy_usd}\n"
         )
 
-    context = ""
-    if user_input:
-        context += f"⚠️ 用户的真实团队规模、预算、技术能力（小团队可执行性维度必须对比这些真实数字）：\n{user_input}\n\n"
+    context = constraints.format_for_prompt() + "\n\n"
     context += f"请对以下 {len(products)} 个产品逐一评分：\n\n" + "\n".join(summaries)
     if weight_override:
         context += f"\n\n⚠️ 用户调整权重：{weight_override}"
@@ -106,6 +104,24 @@ def run(
     data.setdefault("top5_ids", [])
     data.setdefault("honorable_mention_ids", [])
     data.setdefault("weight_used", {"市场机会": 30, "深圳落地可行性": 25, "小团队可执行性": 20, "竞争格局": 15, "时机": 10})
+
+    valid_evals = []
+    for i, e in enumerate(data["evaluations"]):
+        if not isinstance(e, dict) or not e.get("product_id") or not e.get("product_name"):
+            logger.warning(f"评分条目 #{i} 缺少 product_id/product_name，丢弃这一条而不是让整批失败: {e}")
+            continue
+        # dimension_scores 里每条也可能缺 dimension 字段，同样过滤而不是让整个评分失败
+        valid_dims = [d for d in e.get("dimension_scores", []) if isinstance(d, dict) and d.get("dimension")]
+        e["dimension_scores"] = valid_dims
+        valid_evals.append(e)
+    data["evaluations"] = valid_evals
+
+    if len(valid_evals) == 0:
+        raise ValueError("所有评分条目都缺少必要字段（product_id/product_name），无法构建结果")
+
+    valid_ids = {e["product_id"] for e in valid_evals}
+    data["top5_ids"] = [pid for pid in data["top5_ids"] if pid in valid_ids]
+    data["honorable_mention_ids"] = [pid for pid in data["honorable_mention_ids"] if pid in valid_ids]
 
     result = EvaluationOutput(**data)
     logger.info(f"Evaluation Agent 完成，Top5: {result.top5_ids}")

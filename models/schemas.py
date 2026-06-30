@@ -14,6 +14,65 @@ class Citation(BaseModel):
     retrieval_date: str = ""
 
 
+# ── User Constraints（结构化用户约束，所有下游Agent的事实来源）───
+
+class UserConstraints(BaseModel):
+    team_size_current: int          # 当前团队人数
+    team_size_hireable: int = 0     # 还可以招聘的人数（如果用户提到）
+    budget_amount: float            # 预算数值
+    budget_currency: str = "RMB"    # 预算货币单位
+    timeline_months: int = 12       # 期望多久内要有付费客户/见效
+    location: str = "深圳"
+    existing_product_summary: str = ""    # 已有产品摘要（如果有）
+    existing_customer_summary: str = ""   # 已有客户资源摘要（如果有）
+    tech_capabilities: list[str] = []     # 团队已具备的技术能力
+    tech_gaps: list[str] = []             # 团队明确缺乏的能力
+    excluded_directions: list[str] = []   # 明确排除的方向
+    raw_description: str = ""             # 原始完整描述，供需要更多细节/语境的Agent参考
+
+    @field_validator("team_size_current", mode="after")
+    @classmethod
+    def validate_team_size(cls, v):
+        if v <= 0 or v > 1000:
+            raise ValueError(
+                f"提取出的团队人数不合理（{v}），原始输入可能损坏、编码错误，或提取失败，不应继续往下跑"
+            )
+        return v
+
+    @field_validator("budget_amount", mode="after")
+    @classmethod
+    def validate_budget(cls, v):
+        if v <= 0:
+            raise ValueError(
+                f"提取出的预算金额不合理（{v}），原始输入可能损坏、编码错误，或提取失败，不应继续往下跑"
+            )
+        return v
+
+    def format_for_prompt(self) -> str:
+        """统一的结构化事实展示格式，所有需要对比用户真实资源的Agent都用这个，
+        确保每个Agent看到的是同一份明确数字，而不是各自去裸文本里找。"""
+        lines = [
+            "【用户真实约束（结构化事实，必须以这里的数字为准，不能用其他来源的数字替代）】",
+            f"  当前团队人数：{self.team_size_current} 人",
+        ]
+        if self.team_size_hireable:
+            lines.append(f"  还可以招聘：{self.team_size_hireable} 人")
+        lines.append(f"  预算：{self.budget_amount} {self.budget_currency}")
+        lines.append(f"  期望见效时间：{self.timeline_months} 个月内")
+        lines.append(f"  地点：{self.location}")
+        if self.existing_product_summary:
+            lines.append(f"  已有产品：{self.existing_product_summary}")
+        if self.existing_customer_summary:
+            lines.append(f"  已有客户资源：{self.existing_customer_summary}")
+        if self.tech_capabilities:
+            lines.append(f"  已具备技术能力：{', '.join(self.tech_capabilities)}")
+        if self.tech_gaps:
+            lines.append(f"  明确缺乏的能力：{', '.join(self.tech_gaps)}")
+        if self.excluded_directions:
+            lines.append(f"  明确排除的方向：{', '.join(self.excluded_directions)}")
+        return "\n".join(lines)
+
+
 # ── Direction Planner ─────────────────────────────────────────
 
 class TechDirection(BaseModel):

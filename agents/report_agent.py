@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from models.schemas import (
     ProductFullResearch, EvaluationOutput, ProductEvaluation,
-    DirectionPlannerOutput,
+    DirectionPlannerOutput, UserConstraints,
 )
 from agents.base import get_client
 
@@ -16,6 +16,7 @@ REPORTS_DIR.mkdir(exist_ok=True)
 
 def run(
     user_input: str,
+    constraints: UserConstraints,
     directions: DirectionPlannerOutput,
     products: list[ProductFullResearch],
     evaluation: EvaluationOutput,
@@ -58,7 +59,9 @@ def run(
 如果某个产品所需人数/预算超过用户实际拥有的资源，必须在"主要风险"里明确指出这个差距，而不是篡改用户的真实情况。
 执行摘要中提到团队时，只能说用户在背景里写的真实人数和真实预算，不能用任何产品的估算值替代。
 
-用户背景（真实情况，必须原样引用，不能更改数字）：
+{constraints.format_for_prompt()}
+
+用户原始描述（补充语境，细节以上面结构化事实为准）：
 {user_input}
 
 研究聚焦方向：
@@ -134,11 +137,26 @@ Top 5 产品详细数据：
 如果产品的研发预算单位是美元而用户预算是人民币，请在报告中清楚换算或标注单位，不要混用造成误解。"""
 
     client = get_client()
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=16000,
-        messages=[{"role": "user", "content": context}],
-    )
+    max_tokens = 16000
+    response = None
+    for attempt in range(3):
+        # max_tokens 较大时 Anthropic SDK 强制要求用流式调用，否则会报错拒绝执行
+        with client.messages.stream(
+            model="claude-sonnet-4-6",
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": context}],
+        ) as stream:
+            response = stream.get_final_message()
+        if response.stop_reason == "max_tokens":
+            logger.warning(f"报告在 max_tokens={max_tokens} 处被截断，加倍重试 {attempt+1}/3")
+            max_tokens = min(max_tokens * 2, 32000)
+            continue
+        break
+    else:
+        raise ValueError(
+            f"报告生成连续3次都在 max_tokens={max_tokens} 截断，可能是Top5产品数量过多导致内容超长，"
+            "建议减少深度研究的产品数量"
+        )
 
     report_md = response.content[0].text
     report_path = REPORTS_DIR / f"report_{run_id}.md"

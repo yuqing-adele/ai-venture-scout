@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
 
-from models.schemas import TechDirection, CandidateProduct
+from models.schemas import TechDirection, CandidateProduct, UserConstraints
 
 # 复用同一个方向，缓存命中率高
 DIRECTION = TechDirection(
@@ -31,6 +31,17 @@ PRODUCT = CandidateProduct(
     why_shenzhen_can_do="华强北元器件齐全、本地PCB厂密集可做客户、嵌入式工程师多",
 )
 
+USER_INPUT = "我想在深圳做 AI 创业，方向是具身智能和工业 AI，团队 5 人，预算 200 万"
+
+CONSTRAINTS = UserConstraints(
+    team_size_current=5,
+    budget_amount=2000000,
+    budget_currency="RMB",
+    existing_product_summary="",
+    tech_capabilities=["嵌入式开发", "计算机视觉"],
+    raw_description=USER_INPUT,
+)
+
 passed = []
 failed = []
 
@@ -47,11 +58,15 @@ def test(name: str, fn):
         return None
 
 
+print("\n=== 测试 Constraint Extractor ===")
+import agents.constraint_extractor as ce
+ce_result = test("Constraint Extractor", lambda: ce.run(USER_INPUT))
+if ce_result:
+    print(f"    团队{ce_result.team_size_current}人，预算{ce_result.budget_amount}{ce_result.budget_currency}")
+
 print("\n=== 测试 Direction Planner ===")
 import agents.direction_planner as dp
-dp_result = test("Direction Planner", lambda: dp.run(
-    "我想在深圳做 AI 创业，方向是具身智能和工业 AI，团队 5 人，预算 200 万"
-))
+dp_result = test("Direction Planner", lambda: dp.run(USER_INPUT, CONSTRAINTS))
 
 print("\n=== 测试 6 个研究 Agent（复用缓存）===")
 import agents.technology_scout as ts
@@ -73,7 +88,8 @@ import agents.product_generator as pg
 pg_result = None
 if all([tech_r, market_r, patent_r, invest_r, policy_r, comp_r]):
     pg_result = test("Product Generator", lambda: pg.run(
-        user_input="深圳5人团队，预算200万，方向工业AI和具身智能",
+        user_input=USER_INPUT,
+        constraints=CONSTRAINTS,
         tech=[tech_r],
         market=[market_r],
         patent=[patent_r],
@@ -92,7 +108,7 @@ print("\n=== 测试 Evaluation Agent ===")
 import agents.evaluation_agent as ea
 eval_r = None
 if deep_r:
-    eval_r = test("Evaluation Agent", lambda: ea.run([deep_r]))
+    eval_r = test("Evaluation Agent", lambda: ea.run([deep_r], CONSTRAINTS))
     if eval_r:
         print(f"    评分完成，Top5: {eval_r.top5_ids}")
 
@@ -106,7 +122,8 @@ if eval_r and deep_r:
         research_focus="工业AI",
     )
     test("Report Agent", lambda: ra.run(
-        user_input="深圳5人团队，预算200万",
+        user_input=USER_INPUT,
+        constraints=CONSTRAINTS,
         directions=directions_obj,
         products=[deep_r],
         evaluation=eval_r,

@@ -12,6 +12,24 @@ CITATION = {
     },
 }
 
+USER_CONSTRAINTS = {
+    "type": "object",
+    "properties": {
+        "team_size_current": {"type": "integer"},
+        "team_size_hireable": {"type": "integer"},
+        "budget_amount": {"type": "number"},
+        "budget_currency": {"type": "string"},
+        "timeline_months": {"type": "integer"},
+        "location": {"type": "string"},
+        "existing_product_summary": {"type": "string"},
+        "existing_customer_summary": {"type": "string"},
+        "tech_capabilities": {"type": "array", "items": {"type": "string"}},
+        "tech_gaps": {"type": "array", "items": {"type": "string"}},
+        "excluded_directions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["team_size_current", "budget_amount"],
+}
+
 DIRECTION_PLANNER = {
     "type": "object",
     "properties": {

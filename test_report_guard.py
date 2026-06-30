@@ -1,9 +1,11 @@
 """验证 Report Agent 的空数据保护逻辑（不调用 API）"""
 from agents.report_agent import run
-from models.schemas import EvaluationOutput
+from models.schemas import EvaluationOutput, UserConstraints
+
+FAKE_CONSTRAINTS = UserConstraints(team_size_current=2, budget_amount=1000000, budget_currency="RMB")
 
 try:
-    run("test", None, [], EvaluationOutput(evaluations=[]), "test")
+    run("test", FAKE_CONSTRAINTS, None, [], EvaluationOutput(evaluations=[]), "test")
     print("FAIL: 应该报错但没有")
 except ValueError as e:
     print(f"PASS: 正确拒绝空 products 列表 - {e}")
@@ -16,7 +18,7 @@ try:
         competition=CompetitionDeepDive(product_id="P001"), supply_chain=SupplyChainDeepDive(product_id="P001"),
         policy=PolicyDeepDive(product_id="P001"),
     )
-    run("test", None, [fake_product], EvaluationOutput(evaluations=[]), "test")
+    run("test", FAKE_CONSTRAINTS, None, [fake_product], EvaluationOutput(evaluations=[]), "test")
     print("FAIL: 应该报错但没有")
 except ValueError as e:
     print(f"PASS: 正确拒绝空 evaluations 列表 - {e}")

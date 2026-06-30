@@ -13,6 +13,7 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 CHECKPOINT_DB = str(DATA_DIR / "checkpoints.sqlite")
 
+import agents.constraint_extractor as constraint_extractor
 import agents.direction_planner as direction_planner
 import agents.technology_scout as tech_scout
 import agents.market_agent as market_agent
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 class GraphState(TypedDict, total=False):
     user_input: str
+    user_constraints: dict
     run_id: str
     directions: list
     tech_research: list
@@ -51,8 +53,39 @@ class GraphState(TypedDict, total=False):
 
 # ── 节点函数 ──────────────────────────────────────────────────
 
+def node_extract_constraints(state: GraphState) -> GraphState:
+    """第一个节点：把用户的自然语言背景提取成结构化事实。
+    这一步本身就是一道校验关卡——如果提取出的人数/预算不合理（比如输入被编码破坏成乱码），
+    会在这里直接报错，而不是带着错误数据跑完整条昂贵的pipeline才发现。"""
+    result = constraint_extractor.run(state["user_input"])
+    return {"user_constraints": result.model_dump()}
+
+
+def node_checkpoint0(state: GraphState) -> GraphState:
+    """在花费更多钱之前，把提取出的结构化事实展示给用户确认。
+    这一步只花了一次 Haiku 调用的钱（约$0.001），是最后一道防止"提取错了但数字看起来合理"的人工保险。"""
+    from models.schemas import UserConstraints
+    constraints = UserConstraints(**state["user_constraints"])
+    display = (
+        "\n提取到的关键事实如下，请确认是否准确：\n\n"
+        + constraints.format_for_prompt()
+        + "\n\n操作说明：\n"
+        + "  - 直接回车 → 确认无误，继续（后面才是真正花钱的步骤）\n"
+        + "  - 输入任意内容 → 视为不准确，将中止运行，你需要修改原始描述文本后用新run_id重新开始\n"
+    )
+    user_response: str = interrupt(display)
+    if user_response and user_response.strip():
+        raise ValueError(
+            "用户确认提取的事实不准确，已中止运行（避免基于错误事实继续花钱）。"
+            "请修改输入文本后，用新的 run_id 重新运行 start 命令。"
+        )
+    return {}
+
+
 def node_direction_planner(state: GraphState) -> GraphState:
-    result = direction_planner.run(state["user_input"])
+    from models.schemas import UserConstraints
+    constraints = UserConstraints(**state["user_constraints"])
+    result = direction_planner.run(state["user_input"], constraints)
     return {"directions": [d.model_dump() for d in result.directions]}
 
 
@@ -101,10 +134,12 @@ def node_product_generator(state: GraphState) -> GraphState:
     from models.schemas import (
         TechScoutOutput, MarketAgentOutput, PatentAgentOutput,
         InvestmentAgentOutput, PolicyAgentOutput, CompetitorAgentOutput,
-        DirectionPlannerOutput, TechDirection,
+        DirectionPlannerOutput, TechDirection, UserConstraints,
     )
+    constraints = UserConstraints(**state["user_constraints"])
     result = product_generator.run(
         user_input=state["user_input"],
+        constraints=constraints,
         tech=[TechScoutOutput(**d) for d in state.get("tech_research", [])],
         market=[MarketAgentOutput(**d) for d in state.get("market_research", [])],
         patent=[PatentAgentOutput(**d) for d in state.get("patent_research", [])],
@@ -125,7 +160,6 @@ def node_checkpoint1(state: GraphState) -> GraphState:
     lines.append("  - 直接回车 → 保留全部，继续深度研究")
     lines.append("  - 输入排除ID → 如：排除 P005 P012 P018")
     lines.append("  - 输入只保留ID → 如：保留 P001 P003 P007（推荐，控制成本时用这个）")
-    lines.append("  - 输入添加 → 如：添加 轻量化机械臂关节模块")
 
     display = "\n".join(lines)
     user_response: str = interrupt(display)
@@ -186,10 +220,11 @@ def node_deep_research(state: GraphState) -> GraphState:
 
 
 def node_evaluation(state: GraphState) -> GraphState:
-    from models.schemas import ProductFullResearch
+    from models.schemas import ProductFullResearch, UserConstraints
     products = [ProductFullResearch(**v) for v in state.get("product_details", {}).values()]
+    constraints = UserConstraints(**state["user_constraints"])
     weight_override = state.get("user_weight_override")
-    result = evaluation_agent.run(products, state.get("user_input", ""), weight_override)
+    result = evaluation_agent.run(products, constraints, weight_override)
     return {"evaluation_results": result.model_dump()}
 
 
@@ -242,9 +277,10 @@ def node_redo_evaluation(state: GraphState) -> GraphState:
 
 
 def node_report(state: GraphState) -> GraphState:
-    from models.schemas import ProductFullResearch, EvaluationOutput, DirectionPlannerOutput, TechDirection
+    from models.schemas import ProductFullResearch, EvaluationOutput, DirectionPlannerOutput, TechDirection, UserConstraints
     products = [ProductFullResearch(**v) for v in state.get("product_details", {}).values()]
     evaluation = EvaluationOutput(**state["evaluation_results"])
+    constraints = UserConstraints(**state["user_constraints"])
     directions_data = state.get("directions", [])
     directions_obj = DirectionPlannerOutput(
         directions=[TechDirection(**d) for d in directions_data],
@@ -254,6 +290,7 @@ def node_report(state: GraphState) -> GraphState:
 
     report_md, report_path = report_agent.run(
         user_input=state["user_input"],
+        constraints=constraints,
         directions=directions_obj,
         products=products,
         evaluation=evaluation,
@@ -290,6 +327,8 @@ def _parse_weight_input(text: str) -> dict:
 def build_graph():
     g = StateGraph(GraphState)
 
+    g.add_node("extract_constraints", node_extract_constraints)
+    g.add_node("checkpoint0", node_checkpoint0)
     g.add_node("direction_planner", node_direction_planner)
     g.add_node("research", node_research)
     g.add_node("product_generator", node_product_generator)
@@ -300,7 +339,9 @@ def build_graph():
     g.add_node("redo_evaluation", node_redo_evaluation)
     g.add_node("report", node_report)
 
-    g.add_edge(START, "direction_planner")
+    g.add_edge(START, "extract_constraints")
+    g.add_edge("extract_constraints", "checkpoint0")
+    g.add_edge("checkpoint0", "direction_planner")
     g.add_edge("direction_planner", "research")
     g.add_edge("research", "product_generator")
     g.add_edge("product_generator", "checkpoint1")

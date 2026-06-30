@@ -149,6 +149,7 @@ _ARRAY_FIELDS = {
     "top5_ids", "honorable_mention_ids", "dimension_scores", "top_strengths", "top_risks",
     "investors", "search_keywords", "excluded_areas", "directions",
     "direct_competitors", "alternative_sources",
+    "tech_capabilities", "tech_gaps", "excluded_directions",
 }
 
 

@@ -3,7 +3,7 @@ import logging
 from models.schemas import (
     TechScoutOutput, MarketAgentOutput, PatentAgentOutput,
     InvestmentAgentOutput, PolicyAgentOutput, CompetitorAgentOutput,
-    CandidateProduct, ProductGeneratorOutput,
+    CandidateProduct, ProductGeneratorOutput, UserConstraints,
 )
 from agents.base import call_claude_structured
 from agents._schemas import PRODUCT_GENERATOR
@@ -26,6 +26,7 @@ SYSTEM_PROMPT = """你是一名科技创业产品策划专家，为深圳硬件�
 
 def run(
     user_input: str,
+    constraints: UserConstraints,
     tech: list[TechScoutOutput],
     market: list[MarketAgentOutput],
     patent: list[PatentAgentOutput],
@@ -49,8 +50,8 @@ def run(
     for c in competitor:
         summaries.append(f"竞争{c.direction_name}：大厂威胁={c.big_tech_threat_level}，空白：{'; '.join(c.differentiation_gaps[:2])}")
 
-    context = f"用户背景：{user_input}\n\n研究数据：\n" + "\n".join(summaries)
-    context += "\n\n请生成 20–30 个具体的创业产品方向，每个产品要足够具体可落地。"
+    context = f"{constraints.format_for_prompt()}\n\n用户原始描述（补充语境）：{user_input}\n\n研究数据：\n" + "\n".join(summaries)
+    context += "\n\n请生成 20–30 个具体的创业产品方向，每个产品要足够具体可落地，并且要在用户真实团队规模和预算范围内可执行。"
 
     data = call_claude_structured(
         SYSTEM_PROMPT, context, PRODUCT_GENERATOR,
@@ -70,13 +71,22 @@ def run(
         if len(data["candidates"]) == 0:
             raise ValueError("Product Generator 连续两次返回空候选列表，研究数据可能不足以支撑产品构想")
 
+    valid_candidates = []
     for i, c in enumerate(data["candidates"]):
-        c["id"] = f"P{str(i+1).zfill(3)}"
+        if not isinstance(c, dict) or not c.get("name"):
+            logger.warning(f"候选产品 #{i} 缺少 name 字段，丢弃这一条而不是让整批失败: {c}")
+            continue
+        c["id"] = f"P{str(len(valid_candidates)+1).zfill(3)}"
         c.setdefault("one_line_description", "")
         c.setdefault("tech_direction", "")
         c.setdefault("target_customer", "")
         c.setdefault("core_value_proposition", "")
         c.setdefault("why_shenzhen_can_do", "")
+        valid_candidates.append(c)
+    data["candidates"] = valid_candidates
+
+    if len(valid_candidates) == 0:
+        raise ValueError("所有候选产品都缺少必要字段（name），无法构建结果")
 
     result = ProductGeneratorOutput(**data)
     logger.info(f"Product Generator 完成，生成 {len(result.candidates)} 个候选产品")
