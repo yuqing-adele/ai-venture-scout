@@ -113,9 +113,11 @@ ai-venture-scout/
 │   ├── tavily_tool.py       # search with domain targeting + caching
 │   └── openalex_tool.py
 ├── main.py                  # interactive CLI
-├── run_full.py              # auto-run (for testing)
-├── export_pdf.py            # Markdown → PDF
-└── test_all.py              # 12/12 unit tests
+├── run_guided.py            # segmented runner (start/resume/status) for
+│                             # agent-driven or scripted operation
+├── regenerate_report.py     # re-run only the report step from saved state
+├── export_pdf.py            # Markdown → HTML (print to PDF from browser)
+└── test_all.py               # unit test suite
 ```
 
 ---
@@ -140,7 +142,7 @@ cp .env.example .env
 # CONTACT_EMAIL=your@email.com   → for OpenAlex rate limit (optional)
 ```
 
-**API cost per full run:** ~$0.10–0.20 USD
+**API cost per full run:** varies with how many candidates you keep at checkpoint 1 — roughly $1–3 USD for a deep dive on 5–8 products (Deep Research and Report generation on Sonnet are the dominant cost; narrowing checkpoint 1 to fewer candidates is the main lever).
 
 ---
 
@@ -152,22 +154,36 @@ cp .env.example .env
 python main.py
 ```
 
-You'll be prompted for your team background, then see two review points during the analysis.
+You'll be prompted for your team background (multi-line input, end with `END` on its own line), then see four review points during the analysis: a confirmation of the extracted team/budget facts, a candidate-filtering checkpoint, an optional scoring-weight adjustment, and the final report.
 
-### Auto-run mode
+### Scripted / agent-driven mode
 
-Edit `USER_INPUT` in `run_full.py`, then:
+For driving the workflow step-by-step from another process or script (useful for unattended runs where a human reviews each checkpoint asynchronously):
 
 ```bash
-python run_full.py
+python run_guided.py start <run_id> <path-to-background.txt>   # always pass a file path, not piped stdin
+python run_guided.py resume <run_id> "<your reply>"
+python run_guided.py status <run_id>
 ```
 
-### Export report to PDF
+State persists to `data/checkpoints.sqlite` via LangGraph's SQLite checkpointer, so a run can be resumed across process restarts without repeating already-completed (and already-paid-for) steps.
+
+### Re-generate just the report
+
+If only the final write-up step needs to change (e.g. after a prompt fix), re-run it from the already-saved research/evaluation state without re-paying for those stages:
 
 ```bash
-python export_pdf.py                      # converts latest report
+python regenerate_report.py <run_id>
+```
+
+### Export report to HTML/PDF
+
+```bash
+python export_pdf.py                      # converts latest report to HTML, opens in browser
 python export_pdf.py reports/report_X.md  # specific report
 ```
+
+Then print to PDF from the browser (Ctrl+P → Save as PDF) — this renders Chinese text reliably, which pure-Python PDF libraries on Windows often don't.
 
 ---
 
