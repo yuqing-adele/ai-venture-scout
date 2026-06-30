@@ -30,18 +30,31 @@ def call_claude_structured(
         "description": "输出结构化分析结果",
         "input_schema": output_schema,
     }]
+    current_max_tokens = max_tokens
     for attempt in range(3):
         response = client.messages.create(
             model=model,
-            max_tokens=max_tokens,
+            max_tokens=current_max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
             tools=tools,
             tool_choice={"type": "tool", "name": "output_result"},
         )
+
+        if response.stop_reason == "max_tokens":
+            logger.warning(
+                f"响应在 max_tokens={current_max_tokens} 处被截断（输出不完整），"
+                f"加倍重试 {attempt+1}/3"
+            )
+            current_max_tokens = min(current_max_tokens * 2, 32000)
+            time.sleep(1)
+            continue
+
         for block in response.content:
             if hasattr(block, "type") and block.type == "tool_use":
-                return clean_data(block.input)
+                if block.input:
+                    return clean_data(block.input)
+                logger.warning(f"tool_use 返回空 input，重试 {attempt+1}/3")
         logger.warning(f"tool_use 未返回结果，重试 {attempt+1}/3")
         time.sleep(1)
     raise ValueError("Claude tool_use 未产生输出")

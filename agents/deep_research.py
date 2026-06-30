@@ -30,7 +30,8 @@ def _market(product: CandidateProduct, tavily: TavilyTool, today: str) -> Market
         logger.warning(f"市场搜索失败: {e}")
     data = call_claude_structured(
         "你是市场分析师。分析产品市场深度，所有文字使用中文。",
-        _ctx("市场深度分析", product, results, today), MARKET_DEEP, max_tokens=2048,
+        _ctx("市场深度分析", product, results, today), MARKET_DEEP,
+        model="claude-sonnet-4-6", max_tokens=2048,
     )
     data["product_id"] = product.id
     data.setdefault("key_customer_profiles", [])
@@ -46,7 +47,8 @@ def _tech(product: CandidateProduct, tavily: TavilyTool, today: str) -> TechDeep
         logger.warning(f"技术搜索失败: {e}")
     data = call_claude_structured(
         "你是技术评估专家。分析产品技术可行性，所有文字使用中文。",
-        _ctx("技术可行性分析", product, results, today), TECH_DEEP, max_tokens=2048,
+        _ctx("技术可行性分析", product, results, today), TECH_DEEP,
+        model="claude-sonnet-4-6", max_tokens=2048,
     )
     data["product_id"] = product.id
     data.setdefault("core_technologies", [])
@@ -63,7 +65,8 @@ def _competition(product: CandidateProduct, tavily: TavilyTool, today: str) -> C
         logger.warning(f"竞争搜索失败: {e}")
     data = call_claude_structured(
         "你是竞争分析师。分析产品竞争格局，所有文字使用中文。",
-        _ctx("竞争深度分析", product, results, today), COMPETITION_DEEP, max_tokens=1500,
+        _ctx("竞争深度分析", product, results, today), COMPETITION_DEEP,
+        model="claude-sonnet-4-6", max_tokens=1500,
     )
     data["product_id"] = product.id
     data.setdefault("direct_competitors", [])
@@ -80,7 +83,8 @@ def _supply_chain(product: CandidateProduct, tavily: TavilyTool, today: str) -> 
         logger.warning(f"供应链搜索失败: {e}")
     data = call_claude_structured(
         "你是深圳供应链专家。分析产品供应链可行性，所有文字使用中文。",
-        _ctx("深圳供应链分析", product, results, today), SUPPLY_CHAIN_DEEP, max_tokens=2500,
+        _ctx("深圳供应链分析", product, results, today), SUPPLY_CHAIN_DEEP,
+        model="claude-sonnet-4-6", max_tokens=2500,
     )
     data["product_id"] = product.id
     data.setdefault("key_components", [])
@@ -97,7 +101,8 @@ def _policy(product: CandidateProduct, tavily: TavilyTool, today: str) -> Policy
         logger.warning(f"政策搜索失败: {e}")
     data = call_claude_structured(
         "你是政策研究员。分析产品适用的政策支持，所有文字使用中文。",
-        _ctx("政策匹配分析", product, results, today), POLICY_DEEP, max_tokens=1500,
+        _ctx("政策匹配分析", product, results, today), POLICY_DEEP,
+        model="claude-sonnet-4-6", max_tokens=1500,
     )
     data["product_id"] = product.id
     data.setdefault("best_applicable_policies", [])

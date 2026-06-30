@@ -12,13 +12,15 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """你是一名科技创业产品策划专家，为深圳硬件创业团队寻找最有价值的产品方向。
 
-关键约束：
-- 团队规模：3–8人
-- 预算：300万以内能跑起来
+严格遵守用户消息中给出的团队规模、预算、已有产品/资源等具体约束条件，
+不要套用任何固定假设——每个用户的情况不同，以用户实际描述为准。
+
+通用原则：
 - 地点：深圳，充分利用供应链优势
 - 重点：AI、具身智能、机器人、AI硬件等政策扶持方向
+- 产品名称要具体（不是"AI工业软件"，而是"PCB焊点AI视觉检测模块"这个级别）
+- 即使用户已有产品基础，也必须生成具体的候选产品/扩展方向列表，不能返回空列表
 
-产品名称要具体（不是"AI工业软件"，而是"PCB焊点AI视觉检测模块"这个级别）。
 所有文字使用中文。"""
 
 
@@ -50,8 +52,24 @@ def run(
     context = f"用户背景：{user_input}\n\n研究数据：\n" + "\n".join(summaries)
     context += "\n\n请生成 20–30 个具体的创业产品方向，每个产品要足够具体可落地。"
 
-    data = call_claude_structured(SYSTEM_PROMPT, context, PRODUCT_GENERATOR, max_tokens=4096)
+    data = call_claude_structured(
+        SYSTEM_PROMPT, context, PRODUCT_GENERATOR,
+        model="claude-sonnet-4-6", max_tokens=8192,
+    )
     data.setdefault("candidates", [])
+
+    if len(data["candidates"]) == 0:
+        logger.warning("Product Generator 返回空列表，重试一次（精简字段长度避免截断）")
+        data = call_claude_structured(
+            SYSTEM_PROMPT,
+            context + "\n\n⚠️ 必须生成至少 15 个具体候选产品，不能返回空列表。"
+                       "每个字段控制在简短长度内（一句话），避免输出过长被截断。",
+            PRODUCT_GENERATOR, model="claude-sonnet-4-6", max_tokens=8192,
+        )
+        data.setdefault("candidates", [])
+        if len(data["candidates"]) == 0:
+            raise ValueError("Product Generator 连续两次返回空候选列表，研究数据可能不足以支撑产品构想")
+
     for i, c in enumerate(data["candidates"]):
         c["id"] = f"P{str(i+1).zfill(3)}"
         c.setdefault("one_line_description", "")

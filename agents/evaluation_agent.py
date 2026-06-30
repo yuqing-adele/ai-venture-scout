@@ -57,6 +57,8 @@ EVAL_SCHEMA = {
 
 
 def run(products: list[ProductFullResearch], weight_override: dict | None = None) -> EvaluationOutput:
+    if not products:
+        raise ValueError("没有产品数据可供评估，上游 Product Generator 或 Deep Research 可能失败")
     logger.info(f"Evaluation Agent 开始评估 {len(products)} 个产品")
 
     summaries = []

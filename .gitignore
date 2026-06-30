@@ -24,6 +24,7 @@ reports/
 .vscode/settings.json
 .idea/
 *.swp
+.claude/
 
 # 系统文件
 .DS_Store

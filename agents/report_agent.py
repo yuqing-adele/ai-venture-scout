@@ -24,6 +24,11 @@ def run(
     """返回 (report_markdown, report_path)"""
     logger.info("Report Agent 开始生成报告")
 
+    if not products:
+        raise ValueError("没有产品研究数据，无法生成报告（拒绝在无数据情况下生成内容，防止幻觉）")
+    if not evaluation.evaluations:
+        raise ValueError("没有评分数据，无法生成报告（拒绝在无数据情况下生成内容，防止幻觉）")
+
     # 按评分排序
     eval_map = {e.product_id: e for e in evaluation.evaluations}
     product_map = {p.product_id: p for p in products}
@@ -122,7 +127,7 @@ Top 5 产品详细数据：
     client = get_client()
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=8000,
+        max_tokens=16000,
         messages=[{"role": "user", "content": context}],
     )
 
