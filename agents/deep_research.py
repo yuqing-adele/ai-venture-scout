@@ -100,7 +100,8 @@ def _policy(product: CandidateProduct, tavily: TavilyTool, today: str) -> Policy
     except Exception as e:
         logger.warning(f"政策搜索失败: {e}")
     data = call_claude_structured(
-        "你是政策研究员。分析产品适用的政策支持，所有文字使用中文。",
+        "你是政策研究员。分析产品适用的政策支持，所有文字使用中文。"
+        "citations 的 url 必须是搜索结果中真实出现的链接，不能编造网址（如包含 XXXXXX 占位符），没有真实链接就留空。",
         _ctx("政策匹配分析", product, results, today), POLICY_DEEP,
         model="claude-sonnet-4-6", max_tokens=1500,
     )

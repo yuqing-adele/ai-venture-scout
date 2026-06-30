@@ -137,6 +137,13 @@ class Competitor(BaseModel):
     key_product: str = ""
     source: Citation | None = None
 
+    @field_validator("funding_total_usd_million", mode="before")
+    @classmethod
+    def coerce_unknown_to_none(cls, v):
+        if isinstance(v, str):
+            return None
+        return v
+
 
 class CompetitorAgentOutput(BaseModel):
     direction_name: str

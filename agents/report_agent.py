@@ -51,7 +51,14 @@ def run(
 
     context = f"""你是一名科技创业分析报告撰写专家。请根据以下研究数据，生成一份完整的中文创业机会分析报告。
 
-用户背景：
+⚠️⚠️⚠️ 最重要的强制规则 ⚠️⚠️⚠️
+用户背景里描述的团队规模、预算、所在城市等约束条件是唯一真实的事实，必须在执行摘要和每个产品分析中原样引用。
+下方"产品详细数据"里每个产品的 team_size_minimum（该产品所需最小研发人数）和 initial_budget_usd（该产品研发预算估算）
+是该产品自身的技术需求估算，**绝对不能**当作用户的真实团队规模或真实预算来描述。
+如果某个产品所需人数/预算超过用户实际拥有的资源，必须在"主要风险"里明确指出这个差距，而不是篡改用户的真实情况。
+执行摘要中提到团队时，只能说用户在背景里写的真实人数和真实预算，不能用任何产品的估算值替代。
+
+用户背景（真实情况，必须原样引用，不能更改数字）：
 {user_input}
 
 研究聚焦方向：
@@ -122,7 +129,9 @@ Top 5 产品详细数据：
 
 ---
 
-报告中所有数据结论务必准确反映研究数据，不要编造数字。"""
+报告中所有数据结论务必准确反映研究数据，不要编造数字。
+团队规模和预算必须使用用户背景里的真实数字，不能用任何产品自身的人力/预算估算替代或混淆。
+如果产品的研发预算单位是美元而用户预算是人民币，请在报告中清楚换算或标注单位，不要混用造成误解。"""
 
     client = get_client()
     response = client.messages.create(
@@ -152,13 +161,24 @@ Top 5 产品详细数据：
     return report_md, str(report_path)
 
 
+def _is_fake_url(url: str) -> bool:
+    """检测明显是编造的占位符链接（如包含 XXXXXX 这类占位符）"""
+    if not url:
+        return False
+    upper = url.upper()
+    return "XXXXXX" in upper or "XXXXX" in upper or "PLACEHOLDER" in upper
+
+
 def _collect_citations(products: list) -> list[dict]:
-    """从所有产品研究中收集所有引用来源，去重"""
+    """从所有产品研究中收集所有引用来源，去重，过滤掉编造的占位符链接"""
     seen_urls = set()
     all_citations = []
     for p in products:
         for dim in [p.market, p.tech, p.competition, p.supply_chain, p.policy]:
             for c in dim.citations:
+                if _is_fake_url(c.url):
+                    logger.warning(f"过滤掉疑似编造的引用链接: {c.url}")
+                    continue
                 url = c.url or c.claim
                 if url and url not in seen_urls:
                     seen_urls.add(url)

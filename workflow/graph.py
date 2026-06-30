@@ -1,11 +1,17 @@
 from __future__ import annotations
 import logging
+import sqlite3
 import uuid
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TypedDict, Any
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import interrupt
+
+DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+CHECKPOINT_DB = str(DATA_DIR / "checkpoints.sqlite")
 
 import agents.direction_planner as direction_planner
 import agents.technology_scout as tech_scout
@@ -117,23 +123,40 @@ def node_checkpoint1(state: GraphState) -> GraphState:
         lines.append(f"       {c['one_line_description']}")
     lines.append("\n操作说明：")
     lines.append("  - 直接回车 → 保留全部，继续深度研究")
-    lines.append("  - 输入排除ID → 如：P005 P012 P018")
+    lines.append("  - 输入排除ID → 如：排除 P005 P012 P018")
+    lines.append("  - 输入只保留ID → 如：保留 P001 P003 P007（推荐，控制成本时用这个）")
     lines.append("  - 输入添加 → 如：添加 轻量化机械臂关节模块")
 
     display = "\n".join(lines)
     user_response: str = interrupt(display)
 
-    selected_ids = [c["id"] for c in candidates]
-    if user_response and user_response.strip():
-        resp = user_response.strip()
-        if not resp.startswith("添加"):
-            exclude = [x.strip() for x in resp.split() if x.strip().startswith("P")]
-            selected_ids = [pid for pid in selected_ids if pid not in exclude]
+    all_ids = [c["id"] for c in candidates]
+    selected_ids = resolve_selected_ids(all_ids, user_response)
 
     return {
         "selected_product_ids": selected_ids,
         "user_notes_checkpoint1": user_response or "",
     }
+
+
+def resolve_selected_ids(all_ids: list[str], user_response: str | None) -> list[str]:
+    """根据确认点1的用户输入，解析出最终保留的产品ID列表（纯函数，便于单测）"""
+    if not user_response or not user_response.strip():
+        return list(all_ids)
+
+    resp = user_response.strip()
+    ids_in_text = [x.strip() for x in resp.split() if x.strip().startswith("P")]
+
+    if resp.startswith("保留") or resp.startswith("只保留"):
+        return [pid for pid in all_ids if pid in ids_in_text]
+    if resp.startswith("排除"):
+        return [pid for pid in all_ids if pid not in ids_in_text]
+    if resp.startswith("添加"):
+        return list(all_ids)  # 添加的方向由下游产品生成阶段处理（当前版本仅记录用户备注）
+    if ids_in_text:
+        # 没有明确动词但给了 ID 列表：按"排除"理解（向后兼容旧格式）
+        return [pid for pid in all_ids if pid not in ids_in_text]
+    return list(all_ids)
 
 
 def node_deep_research(state: GraphState) -> GraphState:
@@ -166,7 +189,7 @@ def node_evaluation(state: GraphState) -> GraphState:
     from models.schemas import ProductFullResearch
     products = [ProductFullResearch(**v) for v in state.get("product_details", {}).values()]
     weight_override = state.get("user_weight_override")
-    result = evaluation_agent.run(products, weight_override)
+    result = evaluation_agent.run(products, state.get("user_input", ""), weight_override)
     return {"evaluation_results": result.model_dump()}
 
 
@@ -291,5 +314,6 @@ def build_graph():
     g.add_edge("redo_evaluation", "report")
     g.add_edge("report", END)
 
-    checkpointer = MemorySaver()
+    conn = sqlite3.connect(CHECKPOINT_DB, check_same_thread=False)
+    checkpointer = SqliteSaver(conn)
     return g.compile(checkpointer=checkpointer)

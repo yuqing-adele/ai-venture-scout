@@ -20,6 +20,29 @@ logging.basicConfig(
 console = Console()
 
 
+def read_multiline_input(prompt: str) -> str:
+    """读取多行输入，连续输入空行两次或单独一行 END 结束"""
+    console.print(f"\n[bold]{prompt}[/bold]")
+    console.print("[dim]（支持多行/分段文本，输入完成后单独另起一行输入 END 并回车）[/dim]\n> ", end="")
+    lines = []
+    empty_count = 0
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if line.strip() == "END":
+            break
+        if line.strip() == "":
+            empty_count += 1
+            if empty_count >= 2 and lines:
+                break
+        else:
+            empty_count = 0
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
 def main():
     from workflow.graph import build_graph
 
@@ -28,8 +51,12 @@ def main():
         "深圳科技创业方向智能分析系统",
         border_style="cyan",
     ))
+    console.print(
+        "\n[yellow]⚠️ 注意：当前状态在内存中，如果程序中途崩溃或被关闭，"
+        "进度无法恢复，需要重新运行（会重新消耗 API 费用）。[/yellow]"
+    )
 
-    user_input = console.input("\n[bold]请描述你的创业背景[/bold]（团队、预算、方向偏好）：\n> ")
+    user_input = read_multiline_input("请描述你的创业背景（团队、预算、方向偏好、已有产品等）：")
     if not user_input.strip():
         console.print("[red]输入不能为空[/red]")
         return
@@ -46,37 +73,45 @@ def main():
 
     console.print(f"\n[dim]Run ID: {run_id}[/dim]\n")
 
-    # 运行直到完成或中断
-    result = app.invoke(initial_state, config=config)
+    try:
+        app.invoke(initial_state, config=config)
 
-    while True:
-        state = app.get_state(config)
+        while True:
+            state = app.get_state(config)
 
-        # 检查是否还有待执行的节点
-        if not state.next:
-            break
-
-        # 检查中断
-        interrupted = False
-        for task in state.tasks:
-            if task.interrupts:
-                for intr in task.interrupts:
-                    console.print(Panel(
-                        str(intr.value),
-                        title="[bold yellow]等待你的确认[/bold yellow]",
-                        border_style="yellow",
-                    ))
-                    user_response = console.input("[bold]你的选择[/bold]（直接回车=确认）：\n> ")
-                    result = app.invoke(Command(resume=user_response), config=config)
-                    interrupted = True
-                    break
-            if interrupted:
+            if not state.next:
                 break
 
-        if not interrupted:
-            break
+            interrupted = False
+            for task in state.tasks:
+                if task.interrupts:
+                    for intr in task.interrupts:
+                        console.print(Panel(
+                            str(intr.value),
+                            title="[bold yellow]等待你的确认[/bold yellow]",
+                            border_style="yellow",
+                        ))
+                        user_response = console.input("[bold]你的选择[/bold]（直接回车=确认）：\n> ")
+                        app.invoke(Command(resume=user_response), config=config)
+                        interrupted = True
+                        break
+                if interrupted:
+                    break
 
-    # 显示最终报告
+            if not interrupted:
+                break
+
+    except Exception as e:
+        console.print(Panel(
+            f"[bold red]运行中断：{type(e).__name__}[/bold red]\n\n{e}\n\n"
+            "[yellow]由于状态保存在内存中，需要重新运行整个流程。"
+            "如果是数据相关错误（如候选产品为空），建议重新描述背景后再试一次。[/yellow]",
+            title="[bold red]出错了[/bold red]",
+            border_style="red",
+        ))
+        logging.exception("Workflow 执行失败")
+        return
+
     final_state = app.get_state(config)
     report_md = final_state.values.get("final_report_markdown", "")
     report_path = final_state.values.get("final_report_path", "")
